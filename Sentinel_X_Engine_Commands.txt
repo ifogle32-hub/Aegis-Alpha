@@ -1,0 +1,81 @@
+SENTINEL X – ENGINE CONTROL COMMANDS
+================================
+
+1) MAKEFILE COMMANDS (RECOMMENDED)
+
+Start Sentinel X (Shadow Mode):
+make engine-start-shadow
+
+Stop Sentinel X (Shadow Mode):
+make engine-stop-shadow
+
+Start Sentinel X (Live / Armed):
+make engine-start-live
+
+Stop Sentinel X (Live / Armed):
+make engine-stop-live
+
+Full Engine Shutdown (Hard Kill):
+make engine-stop-all
+
+
+2) DIRECT PYTHON COMMANDS (NO MAKEFILE)
+
+Start Shadow Engine:
+export SENTINEL_MODE=shadow
+python -m sentinelx.engine
+
+Start Live Engine:
+export SENTINEL_MODE=live
+python -m sentinelx.engine
+
+Stop Engine (Graceful):
+pkill -f "sentinelx.engine"
+
+Force Kill (Last Resort):
+pkill -9 -f "sentinelx"
+
+
+3) DOCKER / CONTAINER COMMANDS
+
+Start Engine:
+docker compose up -d sentinel-engine
+
+Stop Engine:
+docker compose stop sentinel-engine
+
+Restart Engine:
+docker compose restart sentinel-engine
+
+Full Shutdown:
+docker compose down
+
+
+4) HEALTH & STATUS CHECKS
+
+Check Engine Process:
+ps aux | grep sentinelx | grep -v grep
+
+Check Engine Health Endpoint:
+curl http://localhost:8000/health
+
+Check Shadow Processing:
+curl http://localhost:8000/shadow/status
+
+
+5) EMERGENCY KILL SWITCH (API)
+
+Signed Kill Switch:
+curl -X POST http://localhost:8000/control/kill \
+  -H "X-Signature: <SIGNED_PAYLOAD>"
+
+Fallback:
+make engine-stop-all
+
+cd ~/Aegis\ Alpha && \
+source .venv/bin/activate && \
+nohup gunicorn api.main:app \
+  -k uvicorn.workers.UvicornWorker \
+  --workers 1 \
+  --bind 0.0.0.0:8000 \
+  > sentinel.log 2>&1 &

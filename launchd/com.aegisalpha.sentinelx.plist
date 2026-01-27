@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aegisalpha.sentinelx</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/ins/Aegis Alpha/api/main.py</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/ins/Aegis Alpha</string>
+    
+    <key>StandardOutPath</key>
+    <string>/Users/ins/Aegis Alpha/logs/sentinel.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/ins/Aegis Alpha/logs/sentinel.log</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    
+    <key>ProcessType</key>
+    <string>Background</string>
+    
+    <key>Nice</key>
+    <integer>0</integer>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/ins/Aegis Alpha</string>
+    </dict>
+    
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

@@ -1,0 +1,1227 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Sentinel X Rork UI Schema",
+  "description": "Production-safe, regulator-safe, regression-proof UI schema for Sentinel X autonomous trading system",
+  "version": "1.0.0",
+  
+  "app": {
+    "id": "sentinel_x",
+    "name": "Sentinel X",
+    "type": "autonomous_trading_system",
+    "authority": "backend",
+    "ui_mode": "command_and_observe",
+    "always_on": true,
+    "backend_url": "http://localhost:8000",
+    "api_version": "v1"
+  },
+  
+  "engine_state": {
+    "description": "Engine execution mode - controls permissions, not lifecycle",
+    "type": "string",
+    "enum": ["RESEARCH", "PAPER", "LIVE", "PAUSED", "KILLED"],
+    "default": "RESEARCH",
+    "mapping": {
+      "RESEARCH": {
+        "label": "Training",
+        "description": "Research, backtests, and simulations run continuously. No trading execution.",
+        "is_trading": false,
+        "is_training": true,
+        "is_execution_enabled": false
+      },
+      "PAPER": {
+        "label": "Paper Trading",
+        "description": "Real execution via paper broker only. No real capital at risk.",
+        "is_trading": true,
+        "is_training": false,
+        "is_execution_enabled": true
+      },
+      "LIVE": {
+        "label": "Live Trading",
+        "description": "Real capital execution. Requires hardware approval and explicit promotion.",
+        "is_trading": true,
+        "is_training": false,
+        "is_execution_enabled": true,
+        "requires_hardware_auth": true
+      },
+      "PAUSED": {
+        "label": "Paused",
+        "description": "All execution blocked. Research continues.",
+        "is_trading": false,
+        "is_training": true,
+        "is_execution_enabled": false
+      },
+      "KILLED": {
+        "label": "Killed",
+        "description": "Emergency stop. Execution disabled globally. Irreversible without restart.",
+        "is_trading": false,
+        "is_training": false,
+        "is_execution_enabled": false,
+        "is_irreversible": true
+      }
+    },
+    "invariants": {
+      "training_never_stops": "Training/research continues in RESEARCH, PAUSED modes",
+      "default_state": "RESEARCH",
+      "fallback_state": "RESEARCH",
+      "kill_switch_supremacy": "KILLED overrides all other states"
+    }
+  },
+  
+  "controls": {
+    "description": "Command-only control surface. UI never executes trades directly.",
+    "commands": [
+      {
+        "id": "START",
+        "label": "Start Paper Trading",
+        "endpoint": "POST /engine/start",
+        "requires_auth": true,
+        "visible_when": {
+          "engine_state": ["RESEARCH", "PAUSED"]
+        },
+        "payload": {
+          "mode": "PAPER"
+        },
+        "resulting_state": "PAPER",
+        "confirmation_required": false,
+        "rate_limit": "5 requests per minute",
+        "timeout_seconds": 10,
+        "ui_behavior": {
+          "wait_for_state_update": true,
+          "poll_interval_ms": 1000,
+          "max_wait_seconds": 30,
+          "show_loading": true,
+          "never_assume_success": true
+        }
+      },
+      {
+        "id": "STOP",
+        "label": "Stop Trading",
+        "endpoint": "POST /engine/stop",
+        "requires_auth": true,
+        "visible_when": {
+          "engine_state": ["PAPER", "LIVE"]
+        },
+        "resulting_state": "RESEARCH",
+        "confirmation_required": false,
+        "rate_limit": "5 requests per minute",
+        "timeout_seconds": 10,
+        "ui_behavior": {
+          "wait_for_state_update": true,
+          "poll_interval_ms": 1000,
+          "max_wait_seconds": 30,
+          "show_loading": true,
+          "never_assume_success": true
+        }
+      },
+      {
+        "id": "EMERGENCY_KILL",
+        "label": "Emergency Kill",
+        "endpoint": "POST /engine/kill",
+        "requires_auth": true,
+        "visible_when": {
+          "engine_state": ["RESEARCH", "PAPER", "LIVE", "PAUSED"]
+        },
+        "resulting_state": "KILLED",
+        "confirmation_required": true,
+        "confirmation_message": "This will immediately cancel all orders and disable execution. Are you sure?",
+        "rate_limit": "bypass",
+        "timeout_seconds": 5,
+        "overrides_all_commands": true,
+        "ui_behavior": {
+          "wait_for_state_update": true,
+          "poll_interval_ms": 500,
+          "max_wait_seconds": 10,
+          "show_loading": true,
+          "show_critical_alert": true,
+          "never_assume_success": true
+        }
+      }
+    ],
+    "guarantees": [
+      "UI never executes trades directly",
+      "UI never bypasses engine",
+      "UI never assumes command success",
+      "UI waits for engine state updates",
+      "Kill-switch overrides everything"
+    ]
+  },
+  
+  "telemetry": {
+    "description": "Read-only telemetry panels. All data from backend metrics endpoints.",
+    "panels": [
+      {
+        "id": "equity_curve",
+        "label": "Equity Curve",
+        "endpoint": "GET /dashboard/equity",
+        "poll_interval_ms": 5000,
+        "data_fields": {
+          "equity": "number",
+          "benchmark": "number",
+          "timestamp": "string"
+        },
+        "visualization": "line_chart",
+        "read_only": true
+      },
+      {
+        "id": "pnl",
+        "label": "P&L",
+        "endpoint": "GET /dashboard/pnl",
+        "poll_interval_ms": 5000,
+        "data_fields": {
+          "daily_pnl": "number",
+          "cumulative_pnl": "number",
+          "realized_pnl": "number",
+          "unrealized_pnl": "number",
+          "timestamp": "string"
+        },
+        "visualization": "bar_chart",
+        "read_only": true
+      },
+      {
+        "id": "drawdown",
+        "label": "Drawdown",
+        "endpoint": "GET /metrics/pnl",
+        "poll_interval_ms": 10000,
+        "data_fields": {
+          "current_drawdown": "number",
+          "max_drawdown": "number",
+          "drawdown_percent": "number",
+          "timestamp": "string"
+        },
+        "visualization": "area_chart",
+        "read_only": true
+      },
+      {
+        "id": "positions",
+        "label": "Open Positions",
+        "endpoint": "GET /positions",
+        "poll_interval_ms": 3000,
+        "data_fields": {
+          "positions": "array",
+          "count": "number",
+          "total_pnl": "number"
+        },
+        "visualization": "table",
+        "read_only": true
+      },
+      {
+        "id": "broker_health",
+        "label": "Broker Health",
+        "endpoint": "GET /dashboard/brokers",
+        "poll_interval_ms": 10000,
+        "data_fields": {
+          "active_broker": "string",
+          "health_score": "number",
+          "latency_ms": "number",
+          "fill_rate": "number",
+          "reliability_score": "number",
+          "failover_history": "array"
+        },
+        "visualization": "metrics_cards",
+        "read_only": true
+      },
+      {
+        "id": "execution_latency",
+        "label": "Execution Latency",
+        "endpoint": "GET /execution/metrics",
+        "poll_interval_ms": 5000,
+        "data_fields": {
+          "avg_latency_ms": "number",
+          "p50_latency_ms": "number",
+          "p95_latency_ms": "number",
+          "p99_latency_ms": "number",
+          "timestamp": "string"
+        },
+        "visualization": "histogram",
+        "read_only": true
+      },
+      {
+        "id": "order_fill_quality",
+        "label": "Order Fill Quality",
+        "endpoint": "GET /execution/metrics",
+        "poll_interval_ms": 5000,
+        "data_fields": {
+          "avg_slippage_bps": "number",
+          "fill_rate": "number",
+          "partial_fill_rate": "number",
+          "rejection_rate": "number"
+        },
+        "visualization": "gauge_chart",
+        "read_only": true
+      },
+      {
+        "id": "engine_heartbeat",
+        "label": "Engine Heartbeat",
+        "endpoint": "GET /dashboard/heartbeat",
+        "poll_interval_ms": 1000,
+        "data_fields": {
+          "heartbeat_ts": "string",
+          "uptime_seconds": "number",
+          "is_alive": "boolean"
+        },
+        "visualization": "status_indicator",
+        "read_only": true
+      }
+    ],
+    "guarantees": [
+      "No derived logic in UI",
+      "All data from backend endpoints",
+      "UI subscribes to events only",
+      "UI tolerates backend restarts"
+    ]
+  },
+  
+  "strategy_intelligence": {
+    "description": "Strategy performance and status display. Read-only viewing with auto-disable visualization.",
+    "endpoint": "GET /dashboard/strategies",
+    "poll_interval_ms": 10000,
+    "data_fields": {
+      "strategies": [
+        {
+          "name": "string",
+          "status": "enum:ACTIVE|DISABLED|SHADOW",
+          "pnl": "number",
+          "sharpe": "number",
+          "drawdown": "number",
+          "expectancy": "number",
+          "health_score": "number",
+          "auto_disabled": "boolean",
+          "promotion_score": "number",
+          "paper_approved": "boolean",
+          "live_approved": "boolean"
+        }
+      ]
+    },
+    "visualization": "table_with_sorting",
+    "allowed_actions": [
+      {
+        "id": "view_details",
+        "label": "View Details",
+        "type": "read_only",
+        "endpoint": "GET /strategies/{name}"
+      },
+      {
+        "id": "view_metrics",
+        "label": "View Metrics",
+        "type": "read_only",
+        "endpoint": "GET /execution/metrics/{strategy_name}"
+      }
+    ],
+    "disallowed_actions": [
+      "Manual enable/disable (unless backend allows)",
+      "Direct strategy modification",
+      "Trading logic changes"
+    ],
+    "read_only": true
+  },
+  
+  "shadow_comparison": {
+    "description": "Shadow vs Live comparison panels. UI visualizes, not decides.",
+    "panels": [
+      {
+        "id": "equity_comparison",
+        "label": "Shadow vs Paper Equity",
+        "endpoint": "GET /shadow/comparison",
+        "poll_interval_ms": 10000,
+        "data_fields": {
+          "shadow_equity": "number",
+          "paper_equity": "number",
+          "divergence": "number",
+          "divergence_percent": "number"
+        },
+        "visualization": "dual_line_chart",
+        "read_only": true
+      },
+      {
+        "id": "divergence_metrics",
+        "label": "Divergence Metrics",
+        "endpoint": "GET /shadow/comparison",
+        "poll_interval_ms": 10000,
+        "data_fields": {
+          "signal_agreement_percent": "number",
+          "slippage_comparison": "number",
+          "fill_rate_comparison": "number"
+        },
+        "visualization": "metrics_cards",
+        "read_only": true
+      }
+    ],
+    "export": {
+      "endpoint": "GET /shadow/export",
+      "formats": ["CSV", "JSON"],
+      "read_only": true
+    },
+    "guarantees": [
+      "UI visualizes only",
+      "No decision logic in UI",
+      "Backend is authoritative"
+    ]
+  },
+  
+  "capital_funding": {
+    "description": "Capital actions are scheduled only, never instant. Hardware-key protected.",
+    "modes": {
+      "desktop": {
+        "allowed_actions": [
+          {
+            "id": "create_funding_schedule",
+            "label": "Create Funding Schedule",
+            "endpoint": "POST /capital/funding/schedule",
+            "requires_hardware_auth": true,
+            "requires_confirmation": true,
+            "cooldown_seconds": 3600
+          },
+          {
+            "id": "view_funding_schedule",
+            "label": "View Funding Schedule",
+            "endpoint": "GET /capital/funding/schedule",
+            "read_only": true
+          },
+          {
+            "id": "view_withdrawal_schedule",
+            "label": "View Withdrawal Schedule",
+            "endpoint": "GET /capital/withdrawal/schedule",
+            "read_only": true
+          },
+          {
+            "id": "view_bank_connection",
+            "label": "Bank Connection Status",
+            "endpoint": "GET /capital/bank/status",
+            "read_only": true
+          }
+        ]
+      },
+      "mobile": {
+        "allowed_actions": [
+          {
+            "id": "view_funding_schedule",
+            "label": "View Funding Schedule",
+            "endpoint": "GET /capital/funding/schedule",
+            "read_only": true
+          },
+          {
+            "id": "view_withdrawal_schedule",
+            "label": "View Withdrawal Schedule",
+            "endpoint": "GET /capital/withdrawal/schedule",
+            "read_only": true
+          },
+          {
+            "id": "view_bank_connection",
+            "label": "Bank Connection Status",
+            "endpoint": "GET /capital/bank/status",
+            "read_only": true
+          }
+        ],
+        "disallowed_actions": [
+          "Create funding schedule",
+          "Modify schedules",
+          "Instant transfers"
+        ]
+      }
+    },
+    "guarantees": [
+      "Scheduled only, never instant",
+      "Hardware-key protected",
+      "Cooldown timers enforced",
+      "Mobile = read-only only"
+    ]
+  },
+  
+  "multi_broker": {
+    "description": "Multi-broker execution visibility. ExecutionRouter is single authority.",
+    "endpoint": "GET /dashboard/brokers",
+    "poll_interval_ms": 10000,
+    "data_fields": {
+      "active_broker": "string",
+      "available_brokers": "array",
+      "failover_history": [
+        {
+          "timestamp": "string",
+          "from_broker": "string",
+          "to_broker": "string",
+          "reason": "string"
+        }
+      ],
+      "broker_decisions": [
+        {
+          "intent_id": "string",
+          "selected_broker": "string",
+          "health_score": "number",
+          "reasoning": "string",
+          "alternatives_considered": "array"
+        }
+      ],
+      "health_scores": {
+        "broker_name": {
+          "latency_ms": "number",
+          "fill_rate": "number",
+          "slippage_bps": "number",
+          "reliability_score": "number"
+        }
+      },
+      "retry_counts": {
+        "broker_name": "number"
+      }
+    },
+    "visualization": "broker_dashboard",
+    "read_only": true,
+    "guarantees": [
+      "ExecutionRouter is authoritative",
+      "UI never selects brokers",
+      "UI only visualizes decisions"
+    ]
+  },
+  
+  "alerting": {
+    "description": "Alerting and incident management. UI subscribes to events only.",
+    "endpoint": "GET /dashboard/alerts",
+    "poll_interval_ms": 2000,
+    "websocket_endpoint": "WS /ws/alerts",
+    "alert_types": [
+      {
+        "id": "kill_switch_armed",
+        "severity": "critical",
+        "notification_channels": ["slack", "mobile_push"],
+        "auto_dismiss": false
+      },
+      {
+        "id": "strategy_disabled",
+        "severity": "warning",
+        "notification_channels": ["slack", "mobile_push"],
+        "auto_dismiss": false
+      },
+      {
+        "id": "drawdown_breach",
+        "severity": "warning",
+        "notification_channels": ["slack", "mobile_push"],
+        "auto_dismiss": false
+      },
+      {
+        "id": "broker_failure",
+        "severity": "error",
+        "notification_channels": ["slack", "mobile_push"],
+        "auto_dismiss": false
+      },
+      {
+        "id": "risk_rejection",
+        "severity": "info",
+        "notification_channels": ["slack"],
+        "auto_dismiss": true
+      }
+    ],
+    "guarantees": [
+      "UI subscribes to events only",
+      "No alert generation in UI",
+      "Backend is source of truth"
+    ]
+  },
+  
+  "audit_regulatory": {
+    "description": "Audit and regulatory exports. UI cannot edit audit records.",
+    "endpoints": {
+      "export_executions": {
+        "endpoint": "GET /audit/export?type=executions",
+        "formats": ["CSV", "JSON", "PDF"],
+        "read_only": true
+      },
+      "export_broker_decisions": {
+        "endpoint": "GET /audit/export?type=broker_decisions",
+        "formats": ["CSV", "JSON", "PDF"],
+        "read_only": true
+      },
+      "export_strategy_changes": {
+        "endpoint": "GET /audit/export?type=strategy_changes",
+        "formats": ["CSV", "JSON", "PDF"],
+        "read_only": true
+      },
+      "export_risk_rejections": {
+        "endpoint": "GET /audit/export?type=risk_rejections",
+        "formats": ["CSV", "JSON", "PDF"],
+        "read_only": true
+      },
+      "export_capital_movements": {
+        "endpoint": "GET /audit/export?type=capital_movements",
+        "formats": ["CSV", "JSON", "PDF"],
+        "read_only": true
+      }
+    },
+    "guarantees": [
+      "UI cannot edit audit records",
+      "All exports are read-only",
+      "Backend generates all exports"
+    ]
+  },
+  
+  "mobile_investor": {
+    "description": "Mobile and investor mode restrictions.",
+    "mobile_ui": {
+      "mode": "read_only",
+      "allowed_panels": [
+        {
+          "id": "equity",
+          "endpoint": "GET /dashboard/equity",
+          "poll_interval_ms": 10000
+        },
+        {
+          "id": "daily_pnl",
+          "endpoint": "GET /dashboard/pnl",
+          "poll_interval_ms": 10000
+        },
+        {
+          "id": "positions",
+          "endpoint": "GET /positions",
+          "poll_interval_ms": 10000
+        },
+        {
+          "id": "engine_state",
+          "endpoint": "GET /status",
+          "poll_interval_ms": 5000
+        }
+      ],
+      "disallowed_features": [
+        "Control commands (START/STOP/KILL)",
+        "Strategy modifications",
+        "Capital actions",
+        "Audit exports"
+      ]
+    },
+    "investor_view": {
+      "mode": "read_only",
+      "allowed_panels": [
+        {
+          "id": "equity",
+          "endpoint": "GET /dashboard/equity",
+          "poll_interval_ms": 10000
+        },
+        {
+          "id": "daily_pnl",
+          "endpoint": "GET /dashboard/pnl",
+          "poll_interval_ms": 10000
+        },
+        {
+          "id": "engine_state",
+          "endpoint": "GET /status",
+          "poll_interval_ms": 5000
+        }
+      ],
+      "disallowed_features": [
+        "All controls",
+        "Strategy details",
+        "Execution access",
+        "Broker information",
+        "Audit exports"
+      ]
+    }
+  },
+  
+  "ui_guarantees": {
+    "description": "Non-negotiable UI guarantees encoded in schema",
+    "guarantees": [
+      {
+        "id": "no_direct_execution",
+        "description": "UI never executes trades",
+        "enforcement": "schema_validation"
+      },
+      {
+        "id": "no_engine_bypass",
+        "description": "UI never bypasses engine",
+        "enforcement": "schema_validation"
+      },
+      {
+        "id": "training_never_stops",
+        "description": "Training never stops",
+        "enforcement": "backend_authority"
+      },
+      {
+        "id": "engine_state_authority",
+        "description": "Engine state is source of truth",
+        "enforcement": "polling_with_validation"
+      },
+      {
+        "id": "kill_switch_supremacy",
+        "description": "Kill-switch overrides UI",
+        "enforcement": "backend_authority"
+      },
+      {
+        "id": "execution_router_authority",
+        "description": "ExecutionRouter is authoritative",
+        "enforcement": "read_only_visualization"
+      },
+      {
+        "id": "backend_restart_tolerance",
+        "description": "UI tolerates backend restarts without desync",
+        "enforcement": "exponential_backoff_polling"
+      },
+      {
+        "id": "no_ui_logic_divergence",
+        "description": "No UI logic may diverge from engine truth",
+        "enforcement": "schema_validation_and_testing"
+      }
+    ]
+  },
+  
+  "api_contract": {
+    "base_url": "http://localhost:8000",
+    "authentication": {
+      "type": "api_key",
+      "header": "X-API-Key",
+      "required_for": ["POST", "PUT", "DELETE"]
+    },
+    "rate_limiting": {
+      "control_endpoints": "5 requests per minute",
+      "read_endpoints": "60 requests per minute",
+      "kill_endpoint": "bypass"
+    },
+    "timeouts": {
+      "control_endpoints": 10,
+      "read_endpoints": 5,
+      "kill_endpoint": 5
+    },
+    "error_handling": {
+      "retry_strategy": "exponential_backoff",
+      "max_retries": 3,
+      "backoff_multiplier": 2
+    },
+    "state_sync": {
+      "poll_interval_ms": 1000,
+      "max_wait_seconds": 30,
+      "never_assume_success": true
+    }
+  },
+  
+  "future_extensibility": {
+    "description": "Schema must support future brokers, strategies, and agents",
+    "extension_points": [
+      {
+        "id": "brokers",
+        "description": "New brokers can be added without schema changes",
+        "implementation": "dynamic_broker_list_from_backend"
+      },
+      {
+        "id": "strategies",
+        "description": "New strategies can be added without schema changes",
+        "implementation": "dynamic_strategy_list_from_backend"
+      },
+      {
+        "id": "agents",
+        "description": "New AI agents can be added without schema changes",
+        "implementation": "dynamic_agent_list_from_backend"
+      }
+    ]
+  },
+  
+  "regulatory_compliance": {
+    "description": "Regulator-safe and investor-safe design",
+    "features": [
+      "All actions are logged and auditable",
+      "No instant capital movements",
+      "Hardware-key protection for sensitive operations",
+      "Read-only investor view",
+      "Complete audit trail",
+      "No UI-side trading logic",
+      "Backend is authoritative for all decisions"
+    ]
+  },
+  
+  "hardware_approval_flow": {
+    "description": "Hardware-key approval flow for sensitive actions. UI displays pending approvals and requires explicit physical confirmation.",
+    "schema": {
+      "ApprovalRequest": {
+        "request_id": "string",
+        "action_type": "enum:ENABLE_LIVE|WITHDRAW|STRATEGY_PROMOTION|KILL_RESET",
+        "created_at": "string",
+        "expires_at": "string",
+        "required_device": "enum:YubiKey|SecureEnclave|WebAuthn",
+        "status": "enum:PENDING|APPROVED|EXPIRED|REJECTED",
+        "metadata": "object"
+      }
+    },
+    "endpoints": {
+      "list_pending": {
+        "endpoint": "GET /approvals/pending",
+        "poll_interval_ms": 5000,
+        "read_only": true
+      },
+      "view_approval": {
+        "endpoint": "GET /approvals/{request_id}",
+        "read_only": true
+      },
+      "view_audit_log": {
+        "endpoint": "GET /approvals/audit",
+        "read_only": true
+      }
+    },
+    "ui_requirements": {
+      "display_pending_approvals": true,
+      "countdown_to_expiration": true,
+      "explicit_physical_confirmation_required": true,
+      "no_soft_approvals": true,
+      "no_auto_approval": true,
+      "immutable_audit_log_view": true
+    },
+    "ui_restrictions": [
+      "Approval buttons do nothing without hardware signal",
+      "UI cannot fabricate approvals",
+      "UI cannot reuse approvals",
+      "UI only displays approval status from backend"
+    ],
+    "guarantees": [
+      "Hardware signal required for all approvals",
+      "UI never generates approvals",
+      "Backend is authoritative for approval state"
+    ]
+  },
+  
+  "investor_mobile_only": {
+    "description": "Investor mobile-only schema. READ-ONLY view with minimal information.",
+    "mode": "read_only",
+    "visible_panels": [
+      {
+        "id": "total_equity",
+        "label": "Total Equity",
+        "endpoint": "GET /dashboard/equity",
+        "poll_interval_ms": 10000
+      },
+      {
+        "id": "daily_pnl",
+        "label": "Daily P&L",
+        "endpoint": "GET /dashboard/pnl",
+        "poll_interval_ms": 10000
+      },
+      {
+        "id": "drawdown",
+        "label": "Drawdown",
+        "endpoint": "GET /metrics/pnl",
+        "poll_interval_ms": 10000
+      },
+      {
+        "id": "equity_curve",
+        "label": "Equity Curve",
+        "endpoint": "GET /dashboard/equity",
+        "poll_interval_ms": 10000
+      },
+      {
+        "id": "engine_state",
+        "label": "Engine State",
+        "endpoint": "GET /status",
+        "poll_interval_ms": 5000
+      },
+      {
+        "id": "broker_mode",
+        "label": "Broker Mode",
+        "endpoint": "GET /status",
+        "poll_interval_ms": 5000,
+        "display": "Paper / Live indicator only"
+      }
+    ],
+    "hidden_features": [
+      "Strategies",
+      "Orders",
+      "Execution routing",
+      "Risk rules",
+      "Kill-switch controls"
+    ],
+    "actions": {
+      "allowed": [],
+      "disallowed": ["ALL"]
+    },
+    "funding": {
+      "display_schedule": true,
+      "endpoint": "GET /capital/funding/schedule",
+      "read_only": true,
+      "disallowed": [
+        "Instant deposits",
+        "Withdrawals",
+        "Broker credentials",
+        "Schedule modifications"
+      ]
+    },
+    "guarantee": "Investor UI can NEVER mutate engine state"
+  },
+  
+  "chaos_test_visualizer": {
+    "description": "Chaos test visualization. UI displays test runs and outcomes. Chaos tests NEVER run in LIVE mode.",
+    "schema": {
+      "ChaosTestRun": {
+        "test_id": "string",
+        "fault_type": "enum:LATENCY|BROKER_DOWN|PARTIAL_FILL|PRICE_GAP|NETWORK_PARTITION",
+        "injected_at": "string",
+        "duration_seconds": "number",
+        "affected_components": "array",
+        "engine_response": "string",
+        "outcome": "enum:PASS|FAIL|TIMEOUT",
+        "strategy_survivability": "object",
+        "broker_failover_paths": "array",
+        "kill_switch_triggers": "array"
+      }
+    },
+    "endpoints": {
+      "list_tests": {
+        "endpoint": "GET /chaos/tests",
+        "poll_interval_ms": 10000,
+        "read_only": true
+      },
+      "view_test": {
+        "endpoint": "GET /chaos/tests/{test_id}",
+        "read_only": true
+      },
+      "test_timeline": {
+        "endpoint": "GET /chaos/tests/{test_id}/timeline",
+        "read_only": true
+      }
+    },
+    "visualization": {
+      "timeline": "Timeline visualization of test events",
+      "engine_state_transitions": "State transition diagram",
+      "strategy_survivability": "Strategy health during test",
+      "broker_failover_paths": "Broker failover visualization",
+      "kill_switch_triggers": "Kill-switch trigger points"
+    },
+    "restrictions": [
+      "Chaos tests NEVER run in LIVE mode",
+      "UI cannot trigger chaos without explicit backend permission",
+      "UI only visualizes test results",
+      "Backend controls all test execution"
+    ],
+    "guarantees": [
+      "UI never executes chaos tests",
+      "Backend is authoritative for test execution",
+      "LIVE mode protection enforced by backend"
+    ]
+  },
+  
+  "llm_strategy_synthesis": {
+    "description": "LLM strategy synthesis UI. Strategies are READ-ONLY. No execution. No auto-promotion without approval.",
+    "schema": {
+      "SynthesizedStrategy": {
+        "strategy_id": "string",
+        "strategy_name": "string",
+        "summary": "string",
+        "hypothesis": "string",
+        "backtest_results": "object",
+        "regimes_tested": "array",
+        "performance_score": "number",
+        "promotion_eligibility": "object",
+        "lifecycle_state": "enum:CANDIDATE|SHADOW_TESTING|PAPER_APPROVED|LIVE_APPROVED|ARCHIVED",
+        "generated_at": "string"
+      }
+    },
+    "endpoints": {
+      "list_strategies": {
+        "endpoint": "GET /synthesis/strategies",
+        "poll_interval_ms": 10000,
+        "read_only": true
+      },
+      "view_strategy": {
+        "endpoint": "GET /synthesis/strategies/{strategy_name}",
+        "read_only": true
+      },
+      "view_backtest": {
+        "endpoint": "GET /synthesis/strategies/{strategy_name}/backtest",
+        "read_only": true
+      },
+      "compare_strategies": {
+        "endpoint": "GET /synthesis/strategies/compare",
+        "read_only": true
+      },
+      "promotion_readiness": {
+        "endpoint": "GET /synthesis/promotion-scores",
+        "read_only": true
+      }
+    },
+    "ui_features": {
+      "browse_generated_strategies": true,
+      "inspect_logic_summaries": true,
+      "view_backtests": true,
+      "compare_against_active": true,
+      "observe_promotion_readiness": true
+    },
+    "restrictions": [
+      "LLM strategies are READ-ONLY",
+      "No execution",
+      "No auto-promotion without approval",
+      "LIVE requires hardware approval",
+      "UI cannot modify strategy code",
+      "UI cannot enable/disable strategies"
+    ],
+    "promotion_flow": {
+      "candidate_to_shadow": {
+        "requires_approval": false,
+        "automatic": true
+      },
+      "shadow_to_paper": {
+        "requires_approval": true,
+        "endpoint": "POST /synthesis/strategies/{strategy_name}/approve-paper",
+        "requires_hardware_auth": false
+      },
+      "paper_to_live": {
+        "requires_approval": true,
+        "endpoint": "POST /synthesis/strategies/{strategy_name}/approve-live",
+        "requires_hardware_auth": true
+      }
+    },
+    "guarantees": [
+      "UI never executes strategies",
+      "UI never auto-promotes",
+      "Backend controls all promotion",
+      "Hardware approval required for LIVE"
+    ]
+  },
+  
+  "tradingview_chart_bindings": {
+    "description": "TradingView chart bindings. Backend is source of truth. Charts are read-only. Real-time via WS/SSE.",
+    "supported_charts": [
+      {
+        "id": "equity_vs_benchmark",
+        "label": "Equity Curve vs Benchmark",
+        "endpoint": "GET /dashboard/equity",
+        "websocket": "WS /ws/equity",
+        "data_fields": {
+          "equity": "number",
+          "benchmark": "number",
+          "timestamp": "string"
+        }
+      },
+      {
+        "id": "per_strategy_equity",
+        "label": "Per-Strategy Equity",
+        "endpoint": "GET /dashboard/strategies",
+        "websocket": "WS /ws/strategies",
+        "data_fields": {
+          "strategy_name": "string",
+          "equity": "number",
+          "timestamp": "string"
+        }
+      },
+      {
+        "id": "drawdown",
+        "label": "Drawdown",
+        "endpoint": "GET /metrics/pnl",
+        "websocket": "WS /ws/drawdown",
+        "data_fields": {
+          "current_drawdown": "number",
+          "max_drawdown": "number",
+          "timestamp": "string"
+        }
+      },
+      {
+        "id": "exposure_by_asset",
+        "label": "Exposure by Asset",
+        "endpoint": "GET /positions",
+        "websocket": "WS /ws/positions",
+        "data_fields": {
+          "symbol": "string",
+          "exposure": "number",
+          "timestamp": "string"
+        }
+      },
+      {
+        "id": "execution_markers",
+        "label": "Execution Markers",
+        "endpoint": "GET /execution/metrics",
+        "websocket": "WS /ws/executions",
+        "data_fields": {
+          "timestamp": "string",
+          "symbol": "string",
+          "side": "string",
+          "qty": "number",
+          "price": "number"
+        }
+      },
+      {
+        "id": "shadow_vs_paper",
+        "label": "Shadow vs Paper Comparison",
+        "endpoint": "GET /shadow/comparison",
+        "websocket": "WS /ws/shadow",
+        "data_fields": {
+          "shadow_equity": "number",
+          "paper_equity": "number",
+          "divergence": "number",
+          "timestamp": "string"
+        }
+      }
+    ],
+    "rules": [
+      "Backend is source of truth",
+      "Charts are read-only",
+      "Real-time via WS/SSE",
+      "No client-side calculations affecting metrics",
+      "Exportable snapshots for audits"
+    ],
+    "export": {
+      "endpoint": "GET /charts/export/{chart_id}",
+      "formats": ["PNG", "PDF", "SVG"],
+      "read_only": true
+    },
+    "guarantees": [
+      "UI never calculates metrics",
+      "All data from backend",
+      "Charts are visualization only",
+      "Exportable for audit trail"
+    ]
+  },
+  
+  "shadow_live_comparison_ui": {
+    "description": "Shadow vs Live comparison UI. Side-by-side visualization with divergence highlighting.",
+    "schema": {
+      "ShadowComparison": {
+        "strategy_id": "string",
+        "strategy_name": "string",
+        "paper_performance": {
+          "equity": "number",
+          "pnl": "number",
+          "sharpe": "number",
+          "drawdown": "number",
+          "trades": "number"
+        },
+        "live_performance": {
+          "equity": "number",
+          "pnl": "number",
+          "sharpe": "number",
+          "drawdown": "number",
+          "trades": "number"
+        },
+        "divergence_score": "number",
+        "promotion_status": "enum:ELIGIBLE|NOT_ELIGIBLE|PENDING",
+        "signal_agreement_percent": "number"
+      }
+    },
+    "endpoints": {
+      "comparison_data": {
+        "endpoint": "GET /shadow/comparison",
+        "poll_interval_ms": 10000,
+        "read_only": true
+      },
+      "strategy_comparison": {
+        "endpoint": "GET /shadow/comparison/{strategy_name}",
+        "read_only": true
+      }
+    },
+    "ui_features": {
+      "side_by_side_charts": true,
+      "highlight_divergence": true,
+      "auto_disable_warnings": true,
+      "promotion_eligibility_indicators": true
+    },
+    "visualization": {
+      "equity_comparison": "Dual line chart (shadow vs paper)",
+      "performance_metrics": "Side-by-side metrics cards",
+      "divergence_heatmap": "Divergence visualization",
+      "promotion_readiness": "Promotion eligibility indicator"
+    },
+    "guarantees": [
+      "UI visualizes only",
+      "No decision logic in UI",
+      "Backend calculates all metrics",
+      "Promotion decisions by backend only"
+    ]
+  },
+  
+  "mobile_funding_scheduler": {
+    "description": "Mobile funding scheduler. Controlled access. Scheduled only. Requires hardware approval.",
+    "schema": {
+      "FundingSchedule": {
+        "schedule_id": "string",
+        "direction": "enum:DEPOSIT|WITHDRAW",
+        "amount": "number",
+        "frequency": "enum:ONCE|DAILY|WEEKLY|MONTHLY",
+        "execution_time": "string",
+        "bank_link_id": "string",
+        "approval_required": true,
+        "status": "enum:PENDING|APPROVED|EXECUTED|CANCELLED",
+        "created_at": "string",
+        "approved_at": "string"
+      }
+    },
+    "endpoints": {
+      "list_schedules": {
+        "endpoint": "GET /capital/funding/schedule",
+        "read_only": true
+      },
+      "view_schedule": {
+        "endpoint": "GET /capital/funding/schedule/{schedule_id}",
+        "read_only": true
+      },
+      "create_schedule": {
+        "endpoint": "POST /capital/funding/schedule",
+        "requires_hardware_auth": true,
+        "requires_confirmation": true,
+        "admin_only": true
+      }
+    },
+    "rules": [
+      "Scheduled only",
+      "No instant movement",
+      "Requires hardware approval",
+      "Read-only on investor mobile",
+      "Admin-only control surface"
+    ],
+    "mobile_access": {
+      "investor": {
+        "allowed": ["view_schedule"],
+        "disallowed": ["create_schedule", "modify_schedule", "cancel_schedule"]
+      },
+      "admin": {
+        "allowed": ["view_schedule", "create_schedule"],
+        "requires_hardware_auth": true
+      }
+    },
+    "guarantees": [
+      "Scheduled only, never instant",
+      "Hardware approval required",
+      "Investor mobile = read-only",
+      "Backend controls execution"
+    ]
+  },
+  
+  "ui_safety_guarantees_extended": {
+    "description": "Extended UI safety guarantees. Enforced globally.",
+    "guarantees": [
+      {
+        "id": "ui_never_calls_brokers",
+        "description": "UI never calls brokers directly",
+        "enforcement": "schema_validation"
+      },
+      {
+        "id": "ui_never_executes_orders",
+        "description": "UI never executes orders",
+        "enforcement": "schema_validation"
+      },
+      {
+        "id": "ui_never_mutates_strategies",
+        "description": "UI never mutates strategies",
+        "enforcement": "schema_validation"
+      },
+      {
+        "id": "ui_never_bypasses_router",
+        "description": "UI never bypasses ExecutionRouter",
+        "enforcement": "schema_validation"
+      },
+      {
+        "id": "ui_failures_no_engine_impact",
+        "description": "UI failures do not affect engine",
+        "enforcement": "backend_isolation"
+      },
+      {
+        "id": "kill_switch_always_visible",
+        "description": "Kill-switch always visible",
+        "enforcement": "ui_contract"
+      },
+      {
+        "id": "all_actions_logged",
+        "description": "All actions logged and auditable",
+        "enforcement": "backend_audit"
+      },
+      {
+        "id": "ui_mirrors_backend",
+        "description": "UI mirrors backend truth, never diverges",
+        "enforcement": "polling_with_validation"
+      },
+      {
+        "id": "ui_controller_not_executor",
+        "description": "UI is a mirror and a controller, never the executor",
+        "enforcement": "schema_validation_and_testing"
+      }
+    ]
+  }
+}

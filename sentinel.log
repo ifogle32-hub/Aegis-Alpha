@@ -1,0 +1,12 @@
+[2026-01-12 23:13:13 -0600] [1559] [INFO] Starting gunicorn 23.0.0
+[2026-01-12 23:13:13 -0600] [1559] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-01-12 23:13:13 -0600] [1559] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 48] Address already in use
+[2026-01-12 23:13:14 -0600] [1559] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-01-12 23:13:14 -0600] [1559] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 48] Address already in use
+[2026-01-12 23:13:15 -0600] [1559] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-01-12 23:13:15 -0600] [1559] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 48] Address already in use
+[2026-01-12 23:13:16 -0600] [1559] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-01-12 23:13:16 -0600] [1559] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 48] Address already in use
+[2026-01-12 23:13:17 -0600] [1559] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-01-12 23:13:17 -0600] [1559] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 48] Address already in use
+[2026-01-12 23:13:18 -0600] [1559] [ERROR] Can't connect to ('0.0.0.0', 8000)
