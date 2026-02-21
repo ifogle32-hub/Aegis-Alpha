@@ -1447,12 +1447,11 @@ class TradingEngine:
             # SAFETY: Shadow training failures must not crash engine
             logger.debug(f"Shadow training tick processing error (non-fatal): {e}")
         
-        SAFETY:
-        - Non-blocking
-        - Never crashes engine
-        - Shadow failures are logged but ignored
-        - Only processes if shadow training is enabled
-        """
+        # SAFETY:
+        # - Non-blocking
+        # - Never crashes engine
+        # - Shadow failures are logged but ignored
+        # - Only processes if shadow training is enabled
         try:
             # Check if shadow training is enabled
             from sentinel_x.shadow.trainer import get_shadow_trainer

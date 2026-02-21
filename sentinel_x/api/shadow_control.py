@@ -10,7 +10,7 @@ All endpoints return 200 OK unless internal error occurs.
 """
 
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 
@@ -35,13 +35,14 @@ router = APIRouter(prefix="/shadow", tags=["shadow_control"])
 
 
 class ShadowStatusResponse(BaseModel):
-    """Response model for shadow status endpoints."""
+    """Response model for shadow status endpoints. Includes adaptive metrics when engine is running."""
     enabled: bool
     timestamp: str
     mode: str
     trading_window: str = "UNKNOWN"
     last_transition: str | None = None
     reason: str | None = None
+    adaptive: Optional[Dict[str, Any]] = None
 
 
 class ShadowEnableRequest(BaseModel):
@@ -100,7 +101,8 @@ async def enable_shadow(
             mode=state_dict["mode"],
             trading_window=state_dict["trading_window"],
             last_transition=state_dict["last_transition"],
-            reason=state_dict["reason"]
+            reason=state_dict["reason"],
+            adaptive=state_dict.get("adaptive"),
         )
     except HTTPException:
         raise
@@ -154,7 +156,8 @@ async def disable_shadow(
             mode=state_dict["mode"],
             trading_window=state_dict["trading_window"],
             last_transition=state_dict["last_transition"],
-            reason=state_dict["reason"]
+            reason=state_dict["reason"],
+            adaptive=state_dict.get("adaptive"),
         )
     except HTTPException:
         raise
@@ -178,14 +181,15 @@ async def get_shadow_status(request: Request):
     try:
         controller = get_shadow_controller()
         state_dict = controller.get_state_dict()
-        
+        adaptive = state_dict.get("adaptive")
         return ShadowStatusResponse(
             enabled=state_dict["shadow_enabled"],
             timestamp=datetime.utcnow().isoformat() + "Z",
             mode=state_dict["mode"],
             trading_window=state_dict["trading_window"],
             last_transition=state_dict["last_transition"],
-            reason=state_dict["reason"]
+            reason=state_dict["reason"],
+            adaptive=adaptive,
         )
     except Exception as e:
         logger.error(f"Error getting shadow status: {e}", exc_info=True)
@@ -196,5 +200,6 @@ async def get_shadow_status(request: Request):
             mode="DISABLED",
             trading_window="UNKNOWN",
             last_transition=None,
-            reason=None
+            reason=None,
+            adaptive=None,
         )

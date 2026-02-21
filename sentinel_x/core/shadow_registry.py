@@ -42,6 +42,7 @@ class ShadowController:
         self._last_transition: Optional[datetime] = None
         self._transition_reason: Optional[str] = None
         self._trading_window: str = "UNKNOWN"  # For status reporting
+        self._adaptive_metrics: Optional[Dict[str, Any]] = None  # v0.1 adaptive engine state
         
         logger.info("ShadowController initialized: state=DISABLED")
     
@@ -118,18 +119,19 @@ class ShadowController:
     def get_state_dict(self) -> Dict[str, Any]:
         """
         Get shadow state as dictionary (for status endpoint).
-        
-        Returns:
-            Dict with shadow state information
+        Includes adaptive_metrics when set by adaptive shadow engine.
         """
         with self._lock:
-            return {
+            out = {
                 "shadow_enabled": self._state == ShadowState.ENABLED,
                 "mode": self._state.value,
                 "trading_window": self._trading_window,
                 "last_transition": self._last_transition.isoformat() + "Z" if self._last_transition else None,
-                "reason": self._transition_reason
+                "reason": self._transition_reason,
             }
+            if self._adaptive_metrics:
+                out["adaptive"] = dict(self._adaptive_metrics)
+            return out
     
     def update_trading_window(self, window: str) -> None:
         """
@@ -141,6 +143,19 @@ class ShadowController:
         with self._lock:
             self._trading_window = window
             logger.debug(f"Shadow trading window updated: {window}")
+
+    def update_adaptive_metrics(self, metrics: Dict[str, Any]) -> None:
+        """
+        Update adaptive shadow engine metrics (v0.1).
+        Used by adaptive_shadow_engine to expose capital, PnL, threshold, multiplier via /shadow/status.
+        """
+        with self._lock:
+            self._adaptive_metrics = dict(metrics)
+
+    def get_adaptive_metrics(self) -> Optional[Dict[str, Any]]:
+        """Return current adaptive metrics if set (for /shadow/status)."""
+        with self._lock:
+            return dict(self._adaptive_metrics) if self._adaptive_metrics else None
 
 
 # Global singleton instance

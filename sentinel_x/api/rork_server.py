@@ -93,6 +93,8 @@ from sentinel_x.api.schemas import (
     BrokerHealthResponse, UIHealthResponse, BacktestResultView
 )
 from sentinel_x.api.rork_adapter import get_rork_mobile_state
+from sentinel_x.api.shadow_control import ShadowStatusResponse
+from sentinel_x.core.shadow_registry import get_shadow_controller
 
 # Global references (set by main.py)
 _engine = None
@@ -3173,6 +3175,125 @@ async def control_strategy_deactivate(request: Request):
 
 
 # ============================================================================
+# SHADOW CONTROL: Enable/Disable Shadow Mode
+# ============================================================================
+
+@app.post("/control/shadow/enable", response_model=ShadowStatusResponse, dependencies=[Depends(require_api_key)])
+@with_timeout(CONTROL_ENDPOINT_TIMEOUT)
+async def control_shadow_enable(request: Request):
+    """
+    Enable shadow mode.
+    
+    SAFETY: SHADOW MODE ONLY - never triggers order execution
+    SAFETY: Engine continues running during state change
+    
+    Request body (optional):
+    {
+        "reason": "Optional reason for enabling"
+    }
+    
+    Returns:
+        ShadowStatusResponse with current state (always 200 OK unless internal error)
+    """
+    request_id = request_id_ctx.get()
+    client_ip = get_remote_address(request)
+    
+    try:
+        # Parse request body (optional)
+        reason = None
+        try:
+            if request.headers.get("content-type") == "application/json":
+                body = await request.json()
+                reason = body.get("reason") if body else None
+        except Exception:
+            pass  # Body parsing is optional
+        
+        controller = get_shadow_controller()
+        controller.enable(reason=reason)
+        state_dict = controller.get_state_dict()
+        
+        logger.info(
+            f"SHADOW_ENABLE_OK | request_id={request_id} | "
+            f"client={client_ip} | reason={reason or 'none'}"
+        )
+        
+        return ShadowStatusResponse(
+            enabled=True,
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            mode=state_dict["mode"],
+            trading_window=state_dict["trading_window"],
+            last_transition=state_dict["last_transition"],
+            reason=state_dict["reason"]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"SHADOW_ENABLE_ERROR | request_id={request_id} | "
+            f"client={client_ip} | error={str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=f"Error enabling shadow mode: {str(e)}")
+
+
+@app.post("/control/shadow/disable", response_model=ShadowStatusResponse, dependencies=[Depends(require_api_key)])
+@with_timeout(CONTROL_ENDPOINT_TIMEOUT)
+async def control_shadow_disable(request: Request):
+    """
+    Disable shadow mode.
+    
+    SAFETY: Engine continues running during state change
+    
+    Request body (optional):
+    {
+        "reason": "Optional reason for disabling"
+    }
+    
+    Returns:
+        ShadowStatusResponse with current state (always 200 OK unless internal error)
+    """
+    request_id = request_id_ctx.get()
+    client_ip = get_remote_address(request)
+    
+    try:
+        # Parse request body (optional)
+        reason = None
+        try:
+            if request.headers.get("content-type") == "application/json":
+                body = await request.json()
+                reason = body.get("reason") if body else None
+        except Exception:
+            pass  # Body parsing is optional
+        
+        controller = get_shadow_controller()
+        controller.disable(reason=reason)
+        state_dict = controller.get_state_dict()
+        
+        logger.info(
+            f"SHADOW_DISABLE_OK | request_id={request_id} | "
+            f"client={client_ip} | reason={reason or 'none'}"
+        )
+        
+        return ShadowStatusResponse(
+            enabled=False,
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            mode=state_dict["mode"],
+            trading_window=state_dict["trading_window"],
+            last_transition=state_dict["last_transition"],
+            reason=state_dict["reason"]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"SHADOW_DISABLE_ERROR | request_id={request_id} | "
+            f"client={client_ip} | error={str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=f"Error disabling shadow mode: {str(e)}")
+
+
+# ============================================================================
 # PHASE 5: Metrics API Endpoints
 # ============================================================================
 
@@ -4714,6 +4835,14 @@ async def startup_event():
     # SAFETY: Runs in API event loop, isolated from engine
     _health_broadcast_task = asyncio.create_task(broadcast_health_snapshots())
     logger.info("Health WebSocket broadcast task started")
+    
+    # Adaptive Shadow Engine v0.1 — internal loop (shadow only, updates /shadow/status)
+    try:
+        from sentinel_x.core.adaptive_shadow_engine import start_adaptive_shadow_engine
+        start_adaptive_shadow_engine()
+        logger.info("Adaptive shadow engine thread started")
+    except Exception as e:
+        logger.warning("Could not start adaptive shadow engine: %s", e)
     
     # Log hardening configuration
     logger.info("Production Hardening Status:")
